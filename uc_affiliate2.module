@@ -697,6 +697,7 @@ function uc_affiliate2_apply_commission($order, $affiliate_id = NULL) {
 
   $context = array(
     'revision' => 'altered',
+    'caller' => 'uc_affiliate2',
     'type' => 'order_product',
     'subject' => array('order' => $order),
   );
