@@ -345,7 +345,7 @@ function uc_affiliate2_action_commission_email($order, $affiliate_commission, $s
 
   // Send to each recipient.
   foreach ($recipients as $email) {
-    $sent = drupal_mail('uc_affiliate2', 'action-mail', $email, uc_store_mail_recipient_language($email), $settings, $settings['from']);
+    $sent = drupal_mail('uc_order', 'action-mail', $email, uc_store_mail_recipient_language($email), $settings, $settings['from']);
 
     if (!$sent['result']) {
       watchdog('ca', 'Attempt to e-mail @email concerning order @order_id failed.', array('@email' => $email, '@order_id' => $order->order_id), WATCHDOG_ERROR);
