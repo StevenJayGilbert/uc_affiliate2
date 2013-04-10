@@ -523,15 +523,21 @@ function uc_affiliate2_user($op, &$edit, &$account, $category = NULL) {
           '#type' => 'textfield',
           '#title' => t('Commission'),
           '#default_value' => $edit['commission'],
-          '#description' => t("The commission for this user. For a fixed commission in the store's currency, just enter a number. For a percentage commission, put a '%' symbol after the number. Leave blank to use either product or global commissions.")
+          '#description' => t("The commission for this user. This should be a comma separated list of number with the first value corresponding to the first level in the hierarchy and each successive value corresponding to the next level in the hierarchy. Commission can either be represented as percentages by adding a '%' symbol after the number or as a fixed amount in the stores currency by a number with no symbol. Example: 5%,4%,2%,2%,1%. Leave blank to use role based or global commissions. Product commissions are always applied first.")
         );
       }
       return $form;
     case 'validate':
       if (user_access('adjust user commissions') && $category == 'account') {
-        if (isset($edit['commission']) && !preg_match('/^([0-9]*(\.[0-9]+)?|1?[0-9]{0,2}(\.[0-9]+)?%)$/', $edit['commission'])) {
-          form_set_error('commission', t('Invalid commission value.'));
-        }
+        if (isset($edit['commission'])) {
+          $commissions = explode(',', $edit['commission']);
+          foreach ($commissions as $commission) {
+            if (!preg_match('/^([0-9]*(\.[0-9]+)?|1?[0-9]{0,2}(\.[0-9]+)?%)$/', $commission)) {
+              form_set_error('commission', t('Invalid commission value.'));
+              break;
+            }
+          }                  
+        }      
       }
       break;
   }
@@ -1174,7 +1180,7 @@ function _uc_affiliate2_handle_request() {
   if (!isset($_REQUEST['a'])) {
     return;
   }
-  
+  $goto = implode('/', arg());
   $account = user_load(array('uid' => $_REQUEST['a']));
   _uc_affiliate2_register_click($account, $goto);
 }
@@ -1408,30 +1414,39 @@ function _uc_affiliate2_commission_is_percentage($commission) {
  */
 function _uc_affiliate2_get_commission($aff_id, $level = 1, $nid = 0, $model = '') {
   global $user;
-
+  $structure = null;
   $account = user_load(array('uid' => $aff_id));
+  //check if this product has commission set for it
+  if ($product_commission = uc_affiliate2_get_product_commission($account, $nid, $model)) {
+    if ($product_commission->commission_structure != "-1") {
+      $structure = $product_commission->commission_structure;
+    }
+    if ($product_commission->commission_structure === 0) {
+      return 0;
+    }  
+  }  
 
-  if ($account->commission && $level == 1) {
-    // We have a commission defined specially for this affiliate.
-    return $account->commission;
+  //if no product commission check for user specific commission
+  if (empty($structure)) {
+    if ($account->commission) {
+      // We have a commission defined specially for this affiliate.
+      $structure = explode(',', $account->commission);
+    }    
+  }
+  
+  //if no user commission check for a role specific commission
+  if (empty($structure)) {
+    // Get the affiliate role (only the last one)
+    $rid = _uc_affiliate2_get_user_rid($account->roles);
+    $structure = variable_get('affiliate_commission_structure_'. $rid, null);
+  }
+ 
+  //if all else fails use the default site commisssion
+  if (empty($structure)) {
+    $structure = variable_get('affiliate_commission_structure', array('5%', '3%', '2%', '2%', '1%'));
   }
 
   $depth = variable_get('affiliate_hierarchy_depth', 5);
-
-  //check if this product has commission set for it
-  $product_commission = uc_affiliate2_get_product_commission($account, $nid, $model);
-  if ($product_commission->commmission_structure === '0') {
-    return 0;
-  }
-  $default_structure = $product_commission->commission_structure;
-
-  if (!empty($_SESSION['affiliate_rid'])) {
-    $structure = variable_get('affiliate_commission_structure_'. $_SESSION['affiliate_rid'], array('5%', '3%', '2%', '2%', '1%'));
-  }
-  else {
-    $structure = $default_structure;
-  }
-
   if ($level <= $depth && $level <= count($structure)) {
     return $structure[$level-1];
   }
@@ -1450,6 +1465,7 @@ function uc_affiliate2_get_product_commission($account, $nid, $model = '') {
       
       if (count($product_commission->commission_structure) == 1 && $product_commission->commission_structure[0] == '0') {
         $product_commission->commission_structure = 0;
+        return $product_commission;
       }
       
       switch ($product_commission->rule) {
@@ -1462,18 +1478,16 @@ function uc_affiliate2_get_product_commission($account, $nid, $model = '') {
           if (array_key_exists($product_commission->rule_match, $account->roles)) {
             return $product_commission;
           }
+          break;
         case 'all':
           return $product_commission;
+          break;
       }
     }
   }
-
-  // Return a default object.
-  return (object)array(
-    'nid' => $nid,
-    'model' => NULL,
-    'commission_structure' => variable_get('affiliate_commission_structure', array('5%', '3%', '2%', '2%', '1%')),
-  );
+  
+  $product_commission->commission_structure = "-1";
+  return $product_commission;
 }
 
 /**

@@ -275,19 +275,20 @@ function _uc_affiliate2_display_banners() {
   $header[] = array('field' => 'banner_preview', 'data' => t('Banner Preview'));
   $header[] = array('field' => 'banner_code', 'data' => t('Banner Code'));
 
-  $banners = explode('<', $banners);
-  unset($banners[0]);
+  $banners = str_replace("\n\r", "\n", $banners);
+  $banners = explode("\n", $banners);
 
   if (count($banners) < 1) {
     return;
   }
 
   foreach ($banners as $banner) {
-    $banner = '<'. $banner;
-    $banner_link = _uc_affiliate2_l($banner, '<front>', $user, array('html' => TRUE));
+    list($img, $path) = explode('|', $banner);
+    $path = trim($path);
+    $banner_link = _uc_affiliate2_l($img, $path, $user, array('html' => TRUE));
 
     $line = array();
-    $line[] = $banner;
+    $line[] = $img;
     $line[] = '<textarea cols="45">'. $banner_link .'</textarea>';
     $rows[] = $line;
   }

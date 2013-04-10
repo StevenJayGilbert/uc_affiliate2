@@ -211,7 +211,7 @@ function uc_affiliate2_banner_settings() {
   $form['affiliate_banner_template'] = array(
     '#type' => 'textarea',
     '#title' => t('Affiliate Banner Templates'),
-    '#description' => t('The IMG tag(s) around which the url of the affiliate is wrapped around. Insert as many as you want.'),
+    '#description' => t('The IMG tag(s) around which the url of the affiliate is wrapped around. Use the format img_tag|relative_url_of_landing_page. Insert one per line.'),
     '#default_value' => variable_get('affiliate_banner_template', ''),
     '#wysiwyg' => FALSE,
   );
@@ -582,7 +582,6 @@ function uc_affiliate2_product_commission_form($form_state, $node) {
   drupal_add_js('misc/autocomplete.js');
   $form = array(
     '#theme' => 'uc_affiliate2_product_commission_form',
-    '#cache' => TRUE,
   );
 
   $form['message'] = array(
@@ -595,9 +594,11 @@ function uc_affiliate2_product_commission_form($form_state, $node) {
   $form['product_commissions']['#tree'] = TRUE;
   // add new rule form
   $rules = _uc_affiliate2_product_commission_rules();
+  $form_state_rule = isset($form_state['values']['product_commissions']['new']['rule']) ? $form_state['values']['product_commissions']['new']['rule'] : '0';
   $form['product_commissions']['new']['rule'] = array(
     '#type' => 'select',
     '#options' => array('Add commissions for ...') + $rules,
+    '#default_value' => $form_state_rule,
     '#ahah' => array(
       'event' => 'change',
       'path' => 'uc_affiliate2/ahah/product_commissions_match',
@@ -608,15 +609,47 @@ function uc_affiliate2_product_commission_form($form_state, $node) {
       ),
     ),
   );
-  $form['product_commissions']['new']['match'] = array(
-    '#value' => '<div id="product-commission-match"></div>'
-  );
+  
+  //find match value depending on if this form has been rebuilt
+  $match = $form_state['values']['match'];
+  if (empty($match)) {
+    $match = isset($form_state['values']['product_commissions']['new']['match']) ? $form_state['values']['product_commissions']['new']['match'] : '0';
+  }  
+  
+  switch ($form_state_rule) {
+    case 'user':
+      $form['product_commissions']['new']['match'] = array(
+        '#type' => 'textfield',
+        '#size' => 12,
+        '#autocomplete_path' => 'user/autocomplete',
+        '#default_value' => $match, 
+        '#prefix' => '<div id="product-commission-match">',
+        '#postfix' => '</div>',           
+      );
+      break;
+    case 'role':
+      $roles = array('Select role ...') + user_roles(FALSE, 'act as affiliate');
+      $form['product_commissions']['new']['match'] = array(
+        '#type' => 'select',
+        '#options' => $roles,
+        '#default_value' => $match,  
+        '#prefix' => '<div id="product-commission-match">',
+        '#postfix' => '</div>',  
+      );
+      break;
+    default:
+      $form['product_commissions']['new']['match'] = array(
+        '#value' => '<div id="product-commission-match"></div>',
+      );
+  }  
   $form['product_commissions']['new']['model'] = array(
     '#type' => 'select',
     '#options' => uc_product_get_models($node),
+    '#default_value' => isset($form_state['values']['product_commissions']['new']['model']) ? $form_state['values']['product_commissions']['new']['model'] : '',
   );
   $form['product_commissions']['new']['commission_structure'] = array(
     '#type' => 'textfield',
+    '#default_value' => isset($form_state['values']['product_commissions']['new']['commission_structure']) ? $form_state['values']['product_commissions']['new']['commission_structure'] : '',      
     '#size' => 12,
   );
   $form['product_commissions']['new']['weight'] = array(
@@ -679,17 +712,89 @@ function uc_affiliate2_product_commission_form($form_state, $node) {
   return $form;
 }
 
+/**
+ * Validate function for commission settings form.
+ */
+function uc_affiliate2_product_commission_form_validate($form, &$form_state) {
+  
+  //no commission structure means that the form has deletes or weight change
+  if ($form_state['values']['product_commissions']['new']['commission_structure'] == '') {  
+    return;
+  } 
+  //special case commission structure 0 means that we don't ever give a commission
+  if ($form_state['values']['product_commissions']['new']['commission_structure'] == '0') {  
+    return;
+  }  
+
+  $error = false;
+  if (isset($form_state['values']['product_commissions']['new']['rule'])) {
+    //find match value depending on if this form has been rebuilt
+    $match = $form_state['values']['match'];
+    if (empty($match)) {
+      $match = isset($form_state['values']['product_commissions']['new']['match']) ? $form_state['values']['product_commissions']['new']['match'] : '0';
+    }
+    
+    switch ($form_state['values']['product_commissions']['new']['rule']) {
+      case '0'://is this a valid rule
+        //form_set_error('product_commissions][new][rule', t('Please enter a commission rule type.'));
+        //Can't use form_set_error because it won't rebuild form on validation fail
+        //http://stackoverflow.com/questions/2887614/drupal-fapi-add-form-elements-on-nodeform-after-validation
+        drupal_set_message(t('Please enter a commission rule type.'), 'error');
+        $error = true;
+        break;
+      case 'role'://do we have a role if needed
+        if ($match == "0") {
+          //form_set_error('product_commissions][new', t('Please enter a role.'));
+          drupal_set_message(t('Please enter a role.'), 'error');
+          $error = true;
+        }
+        break;  
+      case 'user'://do we have a role if needed
+        if ($match == "0") {
+          //form_set_error('product_commissions][new', t('Please enter a user.'));
+          drupal_set_message(t('Please enter a user.'), 'error');
+          $error = true;
+        }
+        break;         
+    }
+  }
+  
+  //is this a valid commission structure
+  $commissions = explode(',', $form_state['values']['product_commissions']['new']['commission_structure']);
+  foreach ($commissions as $commission) {
+    if (!preg_match('/^([0-9]*(\.[0-9]+)?|1?[0-9]{0,2}(\.[0-9]+)?%)$/', $commission)) {
+      //form_set_error('product_commissions][new][commission_structure', t('Invalid commission value.'));
+      drupal_set_message(t('Invalid commission value.'), 'error'); 
+      $error = true;
+      break;
+    }
+  }                  
+  
+  if ($error) {
+    //Errors are reported as drupal message raher than form_set_error
+    // this way we can rebuild the form on validation error
+    // and have any ahah elements rebuilt as well
+    $form_state['rebuild'] = TRUE;
+  }
+}
+
 function uc_affiliate2_product_commission_form_submit($form, &$form_state) {
   $nid = $form_state['values']['nid'];
 
   // save the new record
   if ($form_state['values']['product_commissions']['new']['commission_structure'] != '') {
+    //find match value depending on if this form has been rebuilt
+    $match = $form_state['values']['match'];
+    if (empty($match)) {
+      $match = isset($form_state['values']['product_commissions']['new']['match']) ? $form_state['values']['product_commissions']['new']['match'] : '0';
+    }      
+    
     $comm = new stdClass();
     $comm->nid = $nid;
     $comm->model = $form_state['values']['product_commissions']['new']['model'];
     $comm->commission_structure = explode(',', $form_state['values']['product_commissions']['new']['commission_structure']);
     $comm->rule = $form_state['values']['product_commissions']['new']['rule'];
-    $comm->rule_match = $form_state['values']['match'];
+    $comm->rule_match = $match;
     if ($comm->rule == 'user') {
       $comm->rule_match = db_result(db_query("SELECT uid from {users} where name='%s'", $comm->rule_match));
     }
@@ -748,7 +853,7 @@ function _uc_affiliate2_ahah_product_commissions_match($form_state) {
   }
 
   $output = _uc_affiliate2_ahah_render($form, 'match');
-  print drupal_to_js(array('data' => $output, 'status' => TRUE));
+  drupal_json(array('data' => $output, 'status' => TRUE));
 }
 
 /*
