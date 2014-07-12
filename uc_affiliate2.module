@@ -1402,7 +1402,7 @@ function _uc_affiliate2_commission_is_percentage($commission) {
  * @param $aff_id
      ID of the affiliate.
  * @param $level
- *   The affiliate commission being obtained.
+ *   The affiliate commission being obtained. 0 for all
  * @param $nid
  *   The node ID of the product being purchased.
  * @param $model
@@ -1447,7 +1447,10 @@ function _uc_affiliate2_get_commission($aff_id, $level = 1, $nid = 0, $model = '
   }
 
   $depth = variable_get('affiliate_hierarchy_depth', 5);
-  if ($level <= $depth && $level <= count($structure)) {
+  if ($level <= 0) {
+    return $structure;
+  }
+  else if ($level <= $depth && $level <= count($structure)) {
     return $structure[$level-1];
   }
 
